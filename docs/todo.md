@@ -1,5 +1,3 @@
-# I WROTE EVERYTHING - NO AI WAS USED IN THE CODING OF THIS PROJECT
-
 Pathway of things to do from scratch:
 
 ## AI Part of it:
