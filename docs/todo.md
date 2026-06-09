@@ -5,9 +5,13 @@ Pathway of things to do from scratch:
 ### Core processing
 - Choose the correct model, choices of model to choose from:
     - `qwen2.5:14b-instruct-q4_K_M` - it is faster than qwen3 as it takes up lesser space but it is not as smart and runs out of context very fast 
-    - `qwen3:14b` - it is way slower - but it is a very good model - I can try to find more optimised versions of it - might have to run GGUF instead of Ollama
+    - `qwen3:14b` - it *is* slower - but it is a very good model - I can try to find more optimised versions of it - might have to run GGUF instead of Ollama
         - Can try VLMM's memory quant and use that to host this locally
+            - I see that it has small but valid improvements over ollama, no MoE bug for 30b a3b (not that it matters for my usecase)
+            - qwen 14b AWQ (with AWQ(_recommended_) / FP8 )
+                - do Ollama and VLLM really slow down inference that much ?
         - Can try the q4_K_M
+            - that IS a valid Ollama route
 - I need to get the model up and running, configure via VLLM / Ollama / etc - plug it up with langchain
     - Use the most updated version of langchain, no deprecared versioning
     - Make a slot to place prompt templates - read from JSON / txt
@@ -37,6 +41,14 @@ Pathway of things to do from scratch:
     - use the library
 - This entire instance is run inside a Docker environment
     - add kubernetes if that is needed
+    - "uptime-kuma" - https://www.youtube.com/watch?v=FvdlwyMwrzg
+    - containers I think i'll need:
+        - Core AI code
+        - Model Storage (should I keep it inside of a container, will it slow it down ?)
+        - Data Storage (chat, settings, etc)
+        - VDB Storage
+        - FrontEnd
+        - Backend
 - Add encryption to the chats that is used on setup
     - the chat / system un-encrypts it on start based on a _5 letter string followed by a 4 number long sequence_
     - there should be a way on how the computer generates a string that is unique to this iteration only (true random) and that is combined with the user's password to create a key/lock system
@@ -46,6 +58,7 @@ Pathway of things to do from scratch:
     - Use basic FE (JS/HTML/CSS) to make it (_Recommended_)
         - Use Auth thanks
     - Use Chainlit
+    - Use StreamLit
 
 ## BackEnd / UpKeep Part of it:
 - restAPI, SwaggerUI, fastAPI endpoints for basic AI functions to route things through
