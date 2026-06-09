@@ -1,5 +1,7 @@
 # AI.TLDR - Skills Showcase
 
+##  I WROTE EVERYTHING - NO AI WAS USED IN THE "CODING" OF THIS PROJECT
+
 > **A proof of skills repository** — demonstrating the full breadth of my current AI/ML engineering capabilities through a single, cohesive, production-grade system.
 
 Every module here is intentionally chosen to showcase a distinct skill: from RAG pipelines and multi-agent orchestration to spatial data analysis, MLOps, and reliability engineering - everything is wired together into a local-first agentic AI.
