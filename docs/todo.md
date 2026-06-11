@@ -9,6 +9,19 @@ Pathway of things to do from scratch:
         - Can try VLMM's memory quant and use that to host this locally
             - I see that it has small but valid improvements over ollama, no MoE bug for 30b a3b (not that it matters for my usecase)
             - qwen 14b AWQ (with AWQ(_recommended_) / FP8 )
+                - 
+                ```
+                VLLM_ATTENTION_BACKEND=XFORMERS \
+                VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS=0 \
+                TORCH_CUDA_ARCH_LIST=12.0 \
+                CUDA_VISIBLE_DEVICES=0 \
+                vllm serve ~/models/Qwen3-14B-AWQ \
+                --max-model-len 3500 \
+                --gpu-memory-utilization 0.90 \
+                --dtype float16 \
+                --enforce-eager \
+                --port 8000
+                ```
                 - do Ollama and VLLM really slow down inference that much ?
         - Can try the q4_K_M
             - that IS a valid Ollama route
