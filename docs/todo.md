@@ -64,6 +64,7 @@ Pathway of things to do from scratch:
         - Backend
 - Add encryption to the chats that is used on setup
     - the chat / system un-encrypts it on start based on a _5 letter string followed by a 4 number long sequence_
+        - try AES
     - there should be a way on how the computer generates a string that is unique to this iteration only (true random) and that is combined with the user's password to create a key/lock system
 
 ## FrontEnd Part of it:
