@@ -16,3 +16,6 @@ LANGCHAIN + VLLM:
 - https://reference.langchain.com/python/langchain-community/llms/vllm/VLLM
     - API:
         - https://reference.langchain.com/python/langchain-openai/chat_models/base/ChatOpenAI
+
+CODING AND ADV PYTHON
+- https://www.w3schools.com/Python/python_args_kwargs.asp
