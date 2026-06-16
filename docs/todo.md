@@ -83,6 +83,7 @@ Pathway of things to do from scratch:
 - Add progress tracking and make it verbose enough to be well understood
 - cron jobs checking the health of the model / re-testing their scores / etc
 - a checker / endpoint for checking telemetry (tokens sent / received / etc)
+- need to write tests / unit tests
 
 # Storage:
 - use parquet files over CSV files
