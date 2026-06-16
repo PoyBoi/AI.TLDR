@@ -84,6 +84,7 @@ Pathway of things to do from scratch:
 - cron jobs checking the health of the model / re-testing their scores / etc
 - a checker / endpoint for checking telemetry (tokens sent / received / etc)
 - need to write tests / unit tests
+- need to do threading / pooling
 
 # Storage:
 - use parquet files over CSV files
