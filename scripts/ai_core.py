@@ -2,33 +2,43 @@
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 import subprocess, sys, requests, os
+from pathlib import Path
+
+from typing import Literal
 
 # Importing from files
 from vllm_runner import run_vLLM, kill_vllm, clear_vram
 
 # ENV Defition
-# None
+os.environ["LANGSMITH_TRACING"] = "true"
 
 class llm_inference:
-    def __init__(self):
+    def __init__(
+            self,
+            # model_location:Path = "/home/poyboi/models/Qwen3-14B-AWQ", # aka "model_name"
+            model_location:str = "Qwen/Qwen3-8B-AWQ",
+            max_model_len:int = 3000,
+            gpu_memory_util:float = 0.90,
+            dtype:Literal["float16", "float32", "bfloat16", "int8", "int4"] = "float16",
+            port:int =  8000,
+            api_key:str =  "something",
+            max_tokens:int = 5, 
+            temperature:int = 0,
+            restart_vllm:bool =  True,
+        ):
         print("Starting INIT process")
         self.model_launch_args = {
-            "model_location": "/home/poyboi/models/Qwen3-14B-AWQ", # aka "model_name"
-            "max_model_len": 3000,
-            "gpu_memory_util": 0.90,
-            "dtype": "float16",
-            "port": 8000,
-            "api_key": "something",
-            "max_tokens": 5, 
-            "temperature": 0,
-            "restart_vllm": True
+            "model_location": model_location, "max_model_len": max_model_len, "gpu_memory_util": gpu_memory_util, "dtype": dtype,
+            "port": port, "api_key": api_key, "max_tokens": max_tokens, "temperature": temperature, "restart_vllm": restart_vllm
         }
-        self.model_launch_args["inference_server_url"] = f"http://localhost:{self.model_launch_args['port']}/v1"
 
         vllm_launch_daemon = """
         VLLM_ATTENTION_BACKEND=XFORMERS VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS=0 TORCH_CUDA_ARCH_LIST=12.0 CUDA_VISIBLE_DEVICES=0
         vllm serve {model_location} --max-model-len {max_model_len} --gpu-memory-utilization {gpu_memory_util} --dtype {dtype} --enforce-eager --port {port} &
         """.format(**self.model_launch_args)
+
+        self.model_launch_args["inference_server_url"] = f"http://localhost:{self.model_launch_args['port']}/v1"
+        self.model_launch_args["launch_commands"] = vllm_launch_daemon
         
         # Init sequences
         try:
@@ -37,15 +47,10 @@ class llm_inference:
             print("1. INIT'ing VLMM"); c_proc = "init vllm"
             if self.model_launch_args["restart_vllm"]:
                 print("RESTART'ing vLLM now...")
-                run_vLLM(
-                    commands = vllm_launch_daemon, 
-                    restart_vllm = True
-                )
+                run_vLLM(**self.model_launch_args)
             elif not self.check_vllm_health(port=self.model_launch_args["port"]):
                 print("INIT'ing vLLM now...")
-                run_vLLM(
-                    commands = vllm_launch_daemon
-                )
+                run_vLLM(**self.model_launch_args)
 
             print(f"Done with {c_proc}")
 
@@ -90,6 +95,7 @@ class llm_inference:
             # Language Settings
             temperature = kwargs["temperature"],
             # max_tokens = kwargs["max_tokens"],
+            streaming=True
         )
     
     def LLM_inference(
@@ -118,7 +124,7 @@ class llm_inference:
         return response
 
 if __name__ == "__main__":
-    llm_inf = llm_inference()
+    llm_inf = llm_inference(restart_vllm=True, gpu_memory_util=0.9)
     user_prompt_run = "What is the meaning of life, answer in one word"
     response = llm_inf.LLM_inference(user_prompt=user_prompt_run)
 
