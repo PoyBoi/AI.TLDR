@@ -22,7 +22,7 @@ def clear_vram():
         print(f"ERROR - Failed to clear VRAM, with error: {e}")
 
 class run_vLLM:
-    def __init__(self, commands, restart_vllm: bool = False):
+    def __init__(self, launch_commands, restart_vllm: bool = False, **kwargs):
         try:
             if not restart_vllm:
                 print("Clearing VRAM")
@@ -31,7 +31,7 @@ class run_vLLM:
                 print("Killing existing VLLM instance")
                 kill_vllm()
             
-            self.run_command(commands)
+            self.run_command(launch_commands)
         except:
             print("Failed VLLM launch, destroying process group and retrying init")
             torch.distributed.destroy_process_group()
