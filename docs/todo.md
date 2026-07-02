@@ -40,6 +40,9 @@ Pathway of things to do from scratch:
 - Set up a basic RAG
     - Make sure to keep it as precise + modular + as efficient as possible
     - Add end points for document upload as well reading text, tables, all that as well different types of files
+    - choose between the following (set up a toggle):
+        - two-step RAG
+        - RAG Agent
     - optimise:
         - chunking
         - retreivers / retreival
