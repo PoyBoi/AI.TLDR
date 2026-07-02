@@ -4,12 +4,12 @@ Pathway of things to do from scratch:
 
 ### Core processing
 #### LLM & Hosting:
-- Choose the correct model, choices of model to choose from:
+- [x] Choose the correct model, choices of model to choose from:
     - `qwen2.5:14b-instruct-q4_K_M` - it is faster than qwen3 as it takes up lesser space but it is not as smart and runs out of context very fast 
     - `qwen3:14b` - it *is* slower - but it is a very good model - I can try to find more optimised versions of it - might have to run GGUF instead of Ollama
         - Can try VLMM's memory quant and use that to host this locally
             - I see that it has small but valid improvements over ollama, no MoE bug for 30b a3b (not that it matters for my usecase)
-            - qwen 14b AWQ (with AWQ(_recommended_) / FP8 )
+            - Qwen/Qwen3-8B-AWQ (qwen 14b AWQ (with AWQ(_recommended_) / FP8 ), not this anymore)
                 - 
                 ```
                 VLLM_ATTENTION_BACKEND=XFORMERS \
@@ -26,9 +26,13 @@ Pathway of things to do from scratch:
                 - do Ollama and VLLM really slow down inference that much ?
         - Can try the q4_K_M
             - that IS a valid Ollama route
-- I need to get the model up and running, configure via VLLM / Ollama / etc - plug it up with langchain
+- [x] I need to get the model up and running, configure via VLLM / Ollama / etc - plug it up with langchain
+    - Setup RAG
+    - Integrate streaming
+    - Function / Tool Calling
     - Use the most updated version of langchain, no deprecared versioning
-    - Make a slot to place prompt templates - read from JSON / txt
+    - concurrency / load balancing
+    - [ ] Make a slot to place prompt templates - read from JSON / txt
 - Add a stop to prevent looping
     - Add a max iteration loop and then force LLM to give response
 
@@ -49,6 +53,7 @@ Pathway of things to do from scratch:
     - see if it's possible for a temp VDB to be made for longer context conversations without breaking the back of the model
         - try using async alongside inference so that the user never knows about it
             - backend endpoints will be useful here
+            - summarisation of conversation into points (what, how, who, where, etc)
 - Use chroma for testing
 - Move to pinecone / weaviate for faster and more prod-ready VDB's
     - Need faster and more precise answers
@@ -108,6 +113,7 @@ Pathway of things to do from scratch:
 - Add progress tracking and make it verbose enough to be well understood
 - cron jobs checking the health of the model / re-testing their scores / etc
 - need to do threading / pooling
+- concurrency / load balancing
 
 ## Testing and others:
 - Implement a checker / endpoint for checking telemetry (tokens sent / received / etc)
