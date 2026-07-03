@@ -49,7 +49,7 @@ Pathway of things to do from scratch:
         - reranking
 - Set up proper Chain Of Thought (COT) logic and implementation
 - Integrate Web Search (DDGS) into the RAG as well as the LLM
-- Set up RAG feedback loop (quality of answers, using recall@ / RAGAS)
+- Set up RAG feedback loop (quality of answers, using recall@ / RAGAS / context precision / answer relevancy) (see how to implement the last 2)
 
 ##### VDB:
 - temp VDB to be used for normal calls:
