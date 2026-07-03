@@ -66,6 +66,10 @@ Pathway of things to do from scratch:
 - Have a few pre-fixed agentic routes / lanes for the user to select based on their use-case
     - Allow customisation for this (B.AI)
 - Implement MCP
+    - Jira
+    - github
+    - local database (of all providers / as much as I can)
+    - slack / discord / other messaging apps for raising tickets / issues
 - Add more agentic protocols:
     - .
 - Need to add a stop for infinite iteration
