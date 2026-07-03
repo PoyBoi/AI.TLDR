@@ -71,7 +71,13 @@ Pathway of things to do from scratch:
     - local database (of all providers / as much as I can)
     - slack / discord / other messaging apps for raising tickets / issues
 - Add more agentic protocols:
-    - .
+    - 
+- Agent ideas:
+    - query-rewriter to cross check / remake the query by asking the user more questions + input validator (guardrails and no personal info given in the prompt) agent
+    - smart containerised VDB (multiple VDB's for different topics) selection agentic
+    - output validator (to make sure that no company guidlines are )
+- Tool ideas:
+    - max len of answer
 - Need to add a stop for infinite iteration
     - Make a tool that does this
 - COT Agent
