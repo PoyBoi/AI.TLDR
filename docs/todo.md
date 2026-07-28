@@ -41,15 +41,29 @@ Pathway of things to do from scratch:
     - Make sure to keep it as precise + modular + as efficient as possible
     - Add end points for document upload as well reading text, tables, all that as well different types of files
     - choose between the following (set up a toggle):
-        - two-step RAG
+        - two-step RAG (aka "basic" RAG)
+            - Need to see if I need an agent for this or if I can just make it linear
         - RAG Agent
     - optimise:
         - chunking
         - retreivers / retreival
         - reranking
+        - [grading](https://docs.langchain.com/oss/python/deepagents/rubric)
+            - Set up RAG feedback loop (quality of answers, using recall@ / RAGAS / context precision / answer relevancy) (see how to implement the last 2)
+            - use langchain's `RubricMiddleware`
+    - Components:
+        - Loading Documents:
+            - Handles majority of file types and file contents such as tables, embedded images, etc
+        - Text Spltting:
+            - Recursive Character Text Splitter (+ user choice to toggle)
+            - Document-based(HTMl, .MD, JSON, Code), Length-Based(Token len, Char len)
+        - Embedding:
+        - Storage (Needs to be prod ready):
+            - 
+        - Retreiver:
 - Set up proper Chain Of Thought (COT) logic and implementation
 - Integrate Web Search (DDGS) into the RAG as well as the LLM
-- Set up RAG feedback loop (quality of answers, using recall@ / RAGAS / context precision / answer relevancy) (see how to implement the last 2)
+- Need to add temp-VDB to store chat as well which I can plug into this (make an arg for this)
 
 ##### VDB:
 - temp VDB to be used for normal calls:
@@ -71,7 +85,7 @@ Pathway of things to do from scratch:
     - local database (of all providers / as much as I can)
     - slack / discord / other messaging apps for raising tickets / issues
 - Add more agentic protocols:
-    - 
+    - implement sub-agent streaming
 - Agent ideas:
     - query-rewriter to cross check / remake the query by asking the user more questions + input validator (guardrails and no personal info given in the prompt) agent
     - smart containerised VDB (multiple VDB's for different topics) selection agentic
@@ -80,7 +94,11 @@ Pathway of things to do from scratch:
     - max len of answer
 - Need to add a stop for infinite iteration
     - Make a tool that does this
-- COT Agent
+- COT Agent (Deep Agent)
+    1. task decomposition 
+    2. structured to-do tools 
+    3. track multi-step progress
+    4. use filesystem storage & backends to offload large and complex data
 
 #### Outputting:
 - Make way for structured outputs (JSON)
