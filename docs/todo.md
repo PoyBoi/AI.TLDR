@@ -43,7 +43,9 @@ Pathway of things to do from scratch:
     - choose between the following (set up a toggle):
         - two-step RAG (aka "basic" RAG)
             - Need to see if I need an agent for this or if I can just make it linear
-        - RAG Agent
+            - use `langChain`
+        - RAG Agent / Deep Agent
+            - - use `langGraph`
     - optimise:
         - chunking
         - retreivers / retreival
@@ -52,16 +54,40 @@ Pathway of things to do from scratch:
             - Set up RAG feedback loop (quality of answers, using recall@ / RAGAS / context precision / answer relevancy) (see how to implement the last 2)
             - use langchain's `RubricMiddleware`
     - Components:
-        - Loading Documents:
+        - Loading Documents (Ingestion):
             - Handles majority of file types and file contents such as tables, embedded images, etc
+            - [ ] Implement Batching
         - Text Spltting:
             - Recursive Character Text Splitter (+ user choice to toggle)
             - Document-based(HTMl, .MD, JSON, Code), Length-Based(Token len, Char len)
+            - Keep data of <below> in metadata of each chunk:
+                - [ ] Page Number
+                - [ ] Document Structure (Chapters, Headers, Structures like tables, embedded images, etc)
+        - Chunking Strategy:
+            - Very imp that each chunk should be logical and informative in it's own
+            - 2000 size w/200 overlap (I think it's overkill)
+            - No benefit from summaries
+            - Add extra info on top of chunk to help with semantic relevance
         - Embedding:
         - Storage (Needs to be prod ready):
-            - 
+            - Pinecone
+        - Query Generation / Re-Writer:
+            - LLM review thread -> generate semantic/keyword queries -> processed in parrallel (how) -> reciprocal rank fusion -> follow-up queries (deep-agentic side tbh)
+            - "the location of embedding of a chunk in the latent space can be used in synthetic QA generation."
+        - User Query:
+            - Intent Recognition
+        - Prompt Compression (Optional):
+            - https://www.microsoft.com/en-us/research/blog/llmlingua-innovating-llm-efficiency-with-prompt-compression/
         - Retreiver:
+        - Re-Ranker:
+            - ~50 chunk input shaved down to top 10/15
+                - Need to figure out how to store this all for immediate context
+            - Check out:
+                - `ZeRank`
+                - `Qwen-Re-Ranker`
+        - Grading:
 - Set up proper Chain Of Thought (COT) logic and implementation
+    - Is this needed in the RAG, should it not be outside where it just calls the RAG ?
 - Integrate Web Search (DDGS) into the RAG as well as the LLM
 - Need to add temp-VDB to store chat as well which I can plug into this (make an arg for this)
 
@@ -162,3 +188,21 @@ Pathway of things to do from scratch:
 # Storage:
 - use parquet files over CSV files
 - setup postgreSQL / Apache Spark (if it's free) for storage
+
+# Client Set-Up
+- Include method to:
+    - install dependancies
+    - make conda env
+    - set inside of `.env`:
+        - env name
+        - other needed stub API keys
+        - relative pathing
+    - ask user to:
+        - set their API keys for inside of `.env`
+        - password for the encryption
+            - provide it as a view once so that they can copy and keep it safe
+
+# Pythonic Practises:
+- Use Async (generators, context managers)
+- `def __exit__(self):`
+- 
