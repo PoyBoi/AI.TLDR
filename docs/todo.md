@@ -205,4 +205,6 @@ Pathway of things to do from scratch:
 # Pythonic Practises:
 - Use Async (generators, context managers)
 - `def __exit__(self):`
-- 
+- asyncio > multithreading in cases of i/o bound tasks - good for tasks where we have to wait for the output, much like waiting for an API call
+    - use async's gather
+- multiprocessing in cases of CPU bound tasks - good for computional heavy tasks where the main part of the waiting is based on the processing time of the process
