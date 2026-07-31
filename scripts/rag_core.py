@@ -1,5 +1,5 @@
 # [Basics]
-import os, sys, pathlib
+import os, sys, pathlib, hashlib
 from typing import Optional, Literal
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 
@@ -38,8 +38,9 @@ class modularRAG:
 
     def doc_loader(self):
         # To implement: batching, takes all file types as input, use async
-        # get doc's loc (can be temp path made by the code) -> load location of all the files -> batch divide -|
+        # get doc's loc (can be temp path made by the code) -> load location of all the files -> batch divide (I need to find a good batch size, equally dividing it over 10 threads sounds fine) -|
         # |-> async(read based on file type + assign metadata -> convert to json / .md (need to look up the specifics) -> append to storage object)
+        
         if self.static_path is not None:
             doc_loc = pathlib.Path(self.static_path)
         elif self.temp_path is not None:
@@ -49,7 +50,15 @@ class modularRAG:
             print(EC)
             return EC
 
-        files = [f for f in doc_loc.iterdir() if f.is_file() and "placeholder" not in str(f)] 
+        files = [
+            {
+                "file_path":f, 
+                "file_size":f.stat().st_size, 
+                "time_last_change":f.stat().st_ctime, 
+                "time_last_modification":f.stat().st_mtime,
+                # "file_hash": hashlib.file_digest(f, "sha256") # Make the Hash of the file once it's been read
+            } for f in doc_loc.iterdir() if f.is_file() and "placeholder" not in str(f)] 
+
         # print(files)
 
         # docs.append(
@@ -57,6 +66,32 @@ class modularRAG:
         # )
 
         return
+
+    def batcher(self, list_of_files: list = None):
+        # Creates batches based on file size and divides it based on the total core count of the user's CPU along with multiprocess pooling
+        None
+
+    def read_pdf(self):
+        # Includes vector and non-Vector PDF's (non vector and embedded images will route to a read_image func)
+        None
+
+    def read_doc(self):
+        None
+
+    def read_excel(self):
+        None
+
+    def read_md(self):
+        None
+
+    def read_json(self):
+        None
+
+    def read_code(self):
+        None
+
+    def read_img(self):
+        None 
 
     def text_splitter(self):
         None
