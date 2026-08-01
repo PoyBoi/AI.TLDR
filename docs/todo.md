@@ -61,7 +61,7 @@ Pathway of things to do from scratch:
             - Look into `baidu`'s `unlimited OCR`
         - Text Spltting:
             - Recursive Character Text Splitter (+ user choice to toggle)
-            - Document-based(HTMl, .MD, JSON, Code, .xlsx, .xls, .doc, .docx), Length-Based(Token len, Char len)
+            - Document-based(HTMl, .MD, JSON, Code, .xlsx, .xls, .doc, .docx, .pdf), Length-Based(Token len, Char len)
             - Keep data of <below> in metadata of each chunk:
                 - [ ] Page Number
                 - [ ] Document Structure (Chapters, Headers, Structures like tables, embedded images, etc)
