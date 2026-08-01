@@ -1,6 +1,6 @@
 # AI.TLDR - Skills Showcase
 
-##  I WROTE EVERYTHING - NO AI WAS USED IN THE "CODING" OF THIS PROJECT
+##  AI used for research and pattern exploration, not code generation
 
 > **A proof of skills repository** — demonstrating the full breadth of my current AI/ML engineering capabilities through a single, cohesive, production-grade system.
 
