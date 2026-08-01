@@ -21,7 +21,9 @@ LANGCHAIN + VLLM:
 
 CODING AND ADV PYTHON
 - https://www.w3schools.com/Python/python_args_kwargs.asp
+- https://docs.python.org/3/library/multiprocessing.html
 
 RAG
 - https://news.ycombinator.com/item?id=45645349
 - https://jakobs.dev/learnings-ingesting-millions-pages-rag-azure/
+- https://docs.python.org/3/library/concurrent.futures.html#concurrent.futures.ProcessPoolExecutor
