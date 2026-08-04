@@ -193,7 +193,9 @@ Pathway of things to do from scratch:
 
 # Client Set-Up
 - Include method to:
+    - Install a small version of linux so I can `sudo apt`
     - install dependancies
+        - `sudo apt install tesseract-ocr`
     - make conda env
     - set inside of `.env`:
         - env name
