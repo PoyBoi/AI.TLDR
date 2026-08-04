@@ -220,3 +220,4 @@ __marimo__/
 # Custom
 input_folder/*
 !input_folder/placeholder
+scripts/extracted_images/*
