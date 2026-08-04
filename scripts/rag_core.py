@@ -4,9 +4,9 @@ from typing import Optional, Literal
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 
 # [Ingestion]
-import PyPDF2, unstructured, orjson
-from docx import Document
+import PyPDF2, unstructured, orjson, io
 from python_calamine import CalamineWorkbook
+from charset_normalizer import from_path
 
 # [LangChain]
 from langchain_core.documents import Document
@@ -54,38 +54,68 @@ class modularRAG:
             return EC
 
         # Loads pre-existing cache file in process_cache.json
-        with open("process_cache.json", "r") as file:
-            self.process_cache = json.load(file)
-            # print(process_cache)
+        cache_path = pathlib.Path("process_cache.json")
+        if cache_path.exists():
+            self.process_cache = json.loads(cache_path.read_text())
+        else:
+            self.process_cache = []
 
-        files = [
+        # Build whole-file entries first — cache exclusion must run at file
+        # granularity, before any PDF gets expanded into per-page entries,
+        # or the same file gets cache-checked N times redundantly.
+        whole_files = [
             {
-                "file_path":f, 
-                "file_size":f.stat().st_size, 
-                "time_last_change":f.stat().st_ctime, 
-                "time_last_modification":f.stat().st_mtime,
-                # TODO : Make the Hash of the file once it's been read
+                "file_path": f,
+                "file_size": f.stat().st_size,
+                "time_last_change": f.stat().st_ctime,
+                "time_last_modification": f.stat().st_mtime,
+                # TODO: Make the Hash of the file once it's been read
                 # "file_hash": hashlib.file_digest(f, "sha256")
-            } for f in doc_loc.iterdir() if f.is_file() and "placeholder" not in str(f)] 
-        total_files = len(files)
+            } for f in doc_loc.iterdir() if f.is_file() and "placeholder" not in str(f)
+        ]
+        total_files = len(whole_files)
 
-        # Exclusion + Updating Logic (Multiprocessing this for time efficiency, in case of large numbers)
+        if total_files == 0:
+            print(f"No files found at {doc_loc}")
+            return []
+
+        # Exclusion + Updating Logic (multiprocessed, at whole-file granularity)
         cache_lookup = {str(item["file_path"]): item for item in (self.process_cache or [])}
         with ProcessPoolExecutor() as executor:
-            files_to_process = list(executor.map(self.file_needs_update, files, [cache_lookup] * total_files))
+            files_to_process = list(
+                executor.map(self.file_needs_update, whole_files, [cache_lookup] * total_files)
+            )
+        files_to_process = [f for f in files_to_process if f is not None]
 
-        batched_files = self.batcher(list_of_files=files)
+        if not files_to_process:
+            print("No files need processing — cache is up to date.")
+            return []
+
+        # Now expand only the files that survived the cache check into
+        # per-page entries for PDFs. Everything else passes through as-is.
+        files_expanded = self._expand_pdfs_to_pages(files_to_process)
+
+        batched_files = self.batcher(list_of_files=files_expanded)
 
         with ProcessPoolExecutor() as executor:
-            processed_files = list(executor.map(self.read_files, batched_files.items()))
+            processed_batches = list(executor.map(self.read_files, batched_files.items()))
 
-        print(processed_files)
+        # Flatten {core_id, assignments} wrapper structure into a flat list of per-file/per-page result dicts before merging PDF pages back into single documents.
+        flat_results = []
+        for batch in processed_batches:
+            for file_entry in batch["assignments"]:
+                flat_results.append(file_entry["text_content"])
 
-        # docs.append(
-        #     Document(page_content=response.text, metadata={"source": source})
-        # )
+        merged_results = self.merge_pdf_page_results(flat_results)
 
-        return
+        # print(merged_results)
+
+        # docs = [
+        #     Document(page_content=r["text"], metadata={"source": r["source_file"], "chunks": r["chunks"]})
+        #     for r in merged_results
+        # ]
+
+        return merged_results
 
     def file_needs_update(self, file_data:dict = None, cache_lookup:dict = None):
         file_path = str(file_data["file_path"])
@@ -120,7 +150,7 @@ class modularRAG:
 
     def batcher(self, list_of_files: list = None):
         # Creates batches based on file size and divides it based on the total core count of the user's CPU along with multiprocess pooling
-        usable_cpu_count = os.cpu_count()-2
+        usable_cpu_count = max(1, (os.cpu_count() or 1) - 2)
         print(f"\nUsable CPU count for this session is: {usable_cpu_count}\n")
 
         # load list of dicts and and separate them into batches (size of file accumulated over X total cores)
@@ -140,23 +170,26 @@ class modularRAG:
         
         return assignments
 
-    def read_files(self, file_data:tuple = None) -> None:
-        # Reads all the files and return plain text, delegates reading to read_file, with no "s", this function just opens up the list and passes the file_loc
+    def read_files(self, file_data: tuple = None) -> dict:
+        # Reads all the files/pages in this core's assignment and stores the
+        # result dict directly on each entry as "text_content".
         core_id, assignments = file_data
-        # Q: How to do error handling in MP
-        # Q: How to join threads and wait for the slowest / rate limiter step before proceeding
+
         for file in assignments:
-            output_text = self.read_file(file["file_path"])
-            file["text_content"] = output_text
+            output = self.read_file(
+                file_loc=file["file_path"],
+                page_index=file.get("page_index"),
+                num_pages=file.get("num_pages"),
+            )
+            file["text_content"] = output
 
-        file_data_with_text = {"core_id": core_id, "assignments": assignments}
-        return file_data_with_text
+        return {"core_id": core_id, "assignments": assignments}
 
-    def read_file(self, file_loc:pathlib.Path = None) -> None:
+    def read_file(self, file_loc:pathlib.Path = None, page_index: int = None, num_pages: int = None) -> None:
         action_map = {
             ".pdf": self.read_pdf,
             ".docx": self.read_doc,
-            ".doc": self.read_doc,
+            ".doc": self.deprecated_file_format,
             ".xlsx": self.read_excel,
             ".xls": self.read_excel,
             ".md": self.read_md,
@@ -173,90 +206,463 @@ class modularRAG:
             ".sh": self.read_code,
             ".bat": self.read_code,
             ".txt": self.read_txt,
-            ".ppt": self.read_ppt,
+            ".ppt": self.deprecated_file_format,
             ".pptx": self.read_ppt,
         }
         # Does the actual reading, done for the sake of modularisation and code-upkeep
         # print(file_loc)
         file_format = "".join(file_loc.suffixes)
-
+        # print(file_format)
         file_read_function = action_map.get(file_format, self.unsupported_file_format)
-        return file_read_function(file_loc = file_loc, file_format = file_format)
 
-
-    def read_pdf(self, file_loc: pathlib.Path = None, file_format: str = None):
-        # Includes vector and non-Vector PDF's (non vector and embedded images will route to a read_image func)
-        print("Reading PDF...")
-        None
+        try:
+            if file_format == ".pdf":
+                return self.read_pdf(
+                    file_loc=file_loc,
+                    file_format=file_format,
+                    page_index=page_index,
+                    num_pages=num_pages,
+                )
+            return file_read_function(file_loc=file_loc, file_format=file_format)
+        except Exception as e:
+            print(f"Failed to read {file_loc} ({file_format}, page_index={page_index}): {e}")
+            return {
+                "source_file": str(file_loc),
+                "file_format": file_format,
+                "page_index": page_index,
+                "text": "",
+                "chunks": [],
+                "error": str(e),
+            }
 
     def read_doc(self, file_loc: pathlib.Path = None, file_format: str = None):
-        print("Reading DOC/DOCX...")
-        if file_format == ".docx":
-            doc = Document(file_loc)
-            parts = []
-            for para in doc.paragraphs:
-                if para.text.strip():
-                    parts.append(para.text)
-            for table in doc.tables:
-                for row in table.rows:
-                    parts.append("\t".join(cell.text for cell in row.cells))
-            return "\n".join(parts)
+        from docx import Document as DocxDocument
+        print(f"Reading DOC/DOCX with file format {file_format}")
 
-        elif file_format == ".doc":
-            # No reliable pure-python parser for legacy .doc.
-            # Convert via headless LibreOffice into a temp dir, then parse as docx.
-            with tempfile.TemporaryDirectory() as tmp:
-                # TODO: What about people who don't have WSL / Linux to run, I need an alternative method for this
-                subprocess.run(
-                    ["libreoffice", "--headless", "--convert-to", "docx",
-                    "--outdir", tmp, str(file_loc)],
-                    check=True, capture_output=True, timeout=120
-                )
-                converted = pathlib.Path(tmp) / (file_loc.stem + ".docx")
-                return self.read_doc(converted)
-
-        else:
+        if file_format != ".docx":
             raise ValueError(f"Unsupported extension for read_doc: {file_format}")
 
+        doc = DocxDocument(file_loc)
+        chunks = []
+        full_text_parts = []
+
+        for para in doc.paragraphs:
+            if para.text.strip():
+                chunks.append({
+                    "type": "paragraph",
+                    "text": para.text,
+                    "section_path": [],
+                    "page": None,
+                })
+                full_text_parts.append(para.text)
+
+        for t_idx, table in enumerate(doc.tables, start=1):
+            rows = [[cell.text for cell in row.cells] for row in table.rows]
+            markdown = self._table_to_markdown(rows)
+            chunks.append({
+                "type": "table",
+                "text": markdown,
+                "rows": rows,
+                "section_path": [f"Table {t_idx}"],
+                "page": None,
+            })
+            full_text_parts.append(markdown)
+
+        return {
+            "source_file": str(file_loc),
+            "file_format": file_format,
+            "text": "\n".join(full_text_parts),
+            "chunks": chunks,
+        }
+
     def read_excel(self, file_loc: pathlib.Path = None, file_format: str = None):
+        print(f"Reading XLSX/XLS with file format {file_format}")
         workbook = CalamineWorkbook.from_path(str(file_loc))
 
-        sheets_out = []
+        chunks = []
+        full_text_parts = []
+
         for sheet_name in workbook.sheet_names:
             rows = workbook.get_sheet_by_name(sheet_name).to_python()
-            sheet_text = "\n".join(
-                "\t".join(str(cell) if cell is not None else "" for cell in row)
-                for row in rows
-            )
-            sheets_out.append(f"# Sheet: {sheet_name}\n{sheet_text}")
+            rows = [[str(cell) if cell is not None else "" for cell in row] for row in rows]
+            markdown = self._table_to_markdown(rows)
+            chunks.append({
+                "type": "table",
+                "text": markdown,
+                "rows": rows,
+                "section_path": [f"Sheet: {sheet_name}"],
+                "page": None,
+            })
+            full_text_parts.append(f"# Sheet: {sheet_name}\n{markdown}")
 
-        return "\n\n".join(sheets_out)
-
+        return {
+            "source_file": str(file_loc),
+            "file_format": file_format,
+            "text": "\n\n".join(full_text_parts),
+            "chunks": chunks,
+        }
+    
     def read_md(self, file_loc: pathlib.Path = None, file_format: str = None):
-        return file_loc.read_text(encoding="utf-8", errors="replace")
+        print(f"Reading MarkDown with file format {file_format}")
+        text = file_loc.read_text(encoding="utf-8", errors="replace")
+
+        return {
+            "source_file": str(file_loc),
+            "file_format": file_format,
+            "text": text,
+            "chunks": [{
+                "type": "paragraph",
+                "text": text,
+                "section_path": [],
+                "page": None,
+            }],
+        }
 
     def read_json(self, file_loc: pathlib.Path = None, file_format: str = None):
+        print(f"Reading JSON with file format {file_format}")
         with open(file_loc, "rb") as f:
             data = orjson.loads(f.read())
-        # Return both raw text and parsed object if downstream needs structure;
-        # here we return pretty text for uniform text-pipeline handling.
-        return orjson.dumps(data, option=orjson.OPT_INDENT_2).decode("utf-8")
+        text = orjson.dumps(data, option=orjson.OPT_INDENT_2).decode("utf-8")
+
+        return {
+            "source_file": str(file_loc),
+            "file_format": file_format,
+            "text": text,
+            "chunks": [{
+                "type": "paragraph",
+                "text": text,
+                "section_path": [],
+                "page": None,
+            }],
+        }
 
     def read_code(self, file_loc: pathlib.Path = None, file_format: str = None):
-        None
+        print(f"Reading Code File with file format {file_format}")
+        try:
+            text = file_loc.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            result = from_path(str(file_loc)).best()
+            if result is None:
+                raise ValueError(f"Could not decode {file_loc}")
+            text = str(result)
 
-    def read_img(self, file_loc: pathlib.Path = None, file_format: str = None):
-        None 
+        return {
+            "source_file": str(file_loc),
+            "file_format": file_format,
+            "text": text,
+            "chunks": [{
+                "type": "code",
+                "text": text,
+                "section_path": [],
+                "page": None,
+            }],
+        }
+
+    def get_pdf_page_count(self, file_loc: pathlib.Path) -> int:
+        import pymupdf
+        doc = pymupdf.open(str(file_loc))
+        count = len(doc)
+        doc.close()
+        return count
+
+    def _expand_pdfs_to_pages(self, files: list) -> list:
+        expanded = []
+
+        for entry in files:
+            file_path = entry["file_path"]
+            suffix = file_path.suffix.lower()
+
+            if suffix != ".pdf":
+                expanded.append({**entry, "page_index": None, "num_pages": None})
+                continue
+
+            num_pages = self.get_pdf_page_count(file_path)
+            # Weight used by the batcher for load-balancing — dividing the
+            # file's real size across its pages gives a rough per-page cost,
+            # which is a better proxy than treating the whole file as one unit.
+            per_page_weight = max(1, entry["file_size"] // max(1, num_pages))
+
+            for page_index in range(num_pages):
+                expanded.append({
+                    **entry,
+                    "file_size": per_page_weight,
+                    "page_index": page_index,
+                    "num_pages": num_pages,
+                })
+
+        return expanded
+
+    def merge_pdf_page_results(self, all_results: list) -> list:
+        from collections import defaultdict
+
+        grouped = defaultdict(list)
+        passthrough_results = []
+
+        for r in all_results:
+            if r.get("page_index") is not None:
+                grouped[r["source_file"]].append(r)
+            else:
+                passthrough_results.append(r)
+
+        merged = []
+        for source_file, page_results in grouped.items():
+            page_results.sort(key=lambda r: r["page_index"])
+            merged.append({
+                "source_file": source_file,
+                "file_format": ".pdf",
+                "text": "\n\n".join(r["text"] for r in page_results if r["text"]),
+                "chunks": [c for r in page_results for c in r["chunks"]],
+            })
+
+        return passthrough_results + merged
+
+    def read_pdf(self, file_loc: pathlib.Path = None, file_format: str = None, page_index: int = None, num_pages: int = None):
+        import pymupdf
+        import pdfplumber
+
+        if page_index is not None:
+            print(f"Reading PDF page {page_index + 1} of {file_loc}")
+        else:
+            print(f"Reading PDF (whole file) {file_loc}")
+
+        doc = pymupdf.open(str(file_loc))
+        target_indices = [page_index] if page_index is not None else list(range(len(doc)))
+
+        # Pull tables only for the target page(s) via pdfplumber.
+        tables_by_page = {}
+        with pdfplumber.open(str(file_loc)) as plumber_pdf:
+            for idx in target_indices:
+                if idx >= len(plumber_pdf.pages):
+                    continue
+                extracted = plumber_pdf.pages[idx].extract_tables()
+                if extracted:
+                    tables_by_page[idx + 1] = extracted
+
+        chunks = []
+        full_text_parts = []
+
+        for idx in target_indices:
+            page = doc[idx]
+            page_num = idx + 1
+
+            page_text = page.get_text("text").strip()
+
+            if not page_text:
+                pix = page.get_pixmap(dpi=150)
+                img_bytes = pix.tobytes("png")
+                ocr_text = self.read_img(
+                    img_bytes=img_bytes,
+                    source_hint=f"{file_loc.stem}_p{page_num}_scan",
+                )
+                chunks.append({
+                    "type": "paragraph",
+                    "text": ocr_text,
+                    "section_path": [f"Page {page_num}"],
+                    "page": page_num,
+                    "source": "ocr",
+                })
+                full_text_parts.append(ocr_text)
+            else:
+                chunks.append({
+                    "type": "paragraph",
+                    "text": page_text,
+                    "section_path": [f"Page {page_num}"],
+                    "page": page_num,
+                    "source": "text_layer",
+                })
+                full_text_parts.append(page_text)
+
+            for table_idx, table_rows in enumerate(tables_by_page.get(page_num, []), start=1):
+                clean_rows = [
+                    [cell if cell is not None else "" for cell in row]
+                    for row in table_rows
+                ]
+                markdown = self._table_to_markdown(clean_rows)
+                chunks.append({
+                    "type": "table",
+                    "text": markdown,
+                    "rows": clean_rows,
+                    "section_path": [f"Page {page_num}", f"Table {table_idx}"],
+                    "page": page_num,
+                })
+                full_text_parts.append(markdown)
+
+            for img_idx, img in enumerate(page.get_images(full=True), start=1):
+                xref = img[0]
+                try:
+                    pix = pymupdf.Pixmap(doc, xref)
+                    if pix.n - pix.alpha > 3:
+                        pix = pymupdf.Pixmap(pymupdf.csRGB, pix)
+                    img_bytes = pix.tobytes("png")
+                except Exception as e:
+                    print(f"Skipping image xref {xref} on page {page_num}: {e}")
+                    continue
+
+                img_desc = self.read_img(
+                    img_bytes=img_bytes,
+                    source_hint=f"{file_loc.stem}_p{page_num}_img{img_idx}",
+                )
+                chunks.append({
+                    "type": "image_ref",
+                    "text": img_desc,
+                    "section_path": [f"Page {page_num}", f"Image {img_idx}"],
+                    "page": page_num,
+                    "xref": xref,
+                })
+
+        doc.close()
+
+        return {
+            "source_file": str(file_loc),
+            "file_format": file_format,
+            "page_index": page_index,   # None means this result is the whole file
+            "text": "\n\n".join(full_text_parts),
+            "chunks": chunks,
+        }
+
+
+    def read_img(
+        self, file_loc: pathlib.Path = None, file_format: str = None, img_bytes: bytes = None, source_hint: str = None,
+    ):
+        """
+        Two call sites:
+        - Standalone image file: file_loc + file_format set, img_bytes is None.
+        - Embedded image from read_pdf: img_bytes + source_hint set, file_loc is None.
+        """
+        from PIL import Image
+        import pytesseract
+
+        if img_bytes is not None:
+            img = Image.open(io.BytesIO(img_bytes))
+            stem = source_hint or "image"
+            source_ref = f"embedded:{stem}"
+        else:
+            print(f"Reading Image with file format {file_format}")
+            img = Image.open(file_loc)
+            stem = file_loc.stem
+            source_ref = str(file_loc)
+
+        out_dir = pathlib.Path("extracted_images")
+        out_dir.mkdir(exist_ok=True)
+        out_path = out_dir / f"{stem}.png"
+        img.save(out_path)
+
+        try:
+            ocr_text = pytesseract.image_to_string(img).strip()
+        except Exception as e:
+            print(f"OCR failed for {stem}: {e}")
+            ocr_text = ""
+
+        text = f"[image: {out_path}]\n{ocr_text}" if ocr_text else f"[image: {out_path}] (no extractable text — caption pending)"
+
+        # Only wrap in the full dict shape when called as a top-level
+        # dispatch reader (file_loc set). When called internally from
+        # read_pdf, just return the description string as before.
+        if file_loc is None:
+            return text
+
+        return {
+            "source_file": source_ref,
+            "file_format": file_format,
+            "text": text,
+            "chunks": [{
+                "type": "image_ref",
+                "text": text,
+                "section_path": [],
+                "page": None,
+            }],
+        }
+
+
+    def _table_to_markdown(self, rows: list) -> str:
+        if not rows:
+            return ""
+        header, *body = rows
+        md = ["| " + " | ".join(str(c) for c in header) + " |"]
+        md.append("|" + "---|" * len(header))
+        for row in body:
+            md.append("| " + " | ".join(str(c) for c in row) + " |")
+        return "\n".join(md)
 
     def read_txt(self, file_loc: pathlib.Path = None, file_format: str = None):
-        None
+        print(f"Reading Text File with file format {file_format}")
+        try:
+            text = file_loc.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            result = from_path(str(file_loc)).best()
+            if result is None:
+                raise ValueError(f"Could not decode {file_loc}")
+            text = str(result)
+
+        return {
+            "source_file": str(file_loc),
+            "file_format": file_format,
+            "text": text,
+            "chunks": [{
+                "type": "paragraph",
+                "text": text,
+                "section_path": [],
+                "page": None,
+            }],
+        }
 
     def read_ppt(self, file_loc: pathlib.Path = None, file_format: str = None):
-        None
+        print(f"Reading PPT/PPTX with file format {file_format}")
+        if file_format != ".pptx":
+            raise ValueError(f"Unsupported extension for read_ppt: {file_format}")
+
+        from pptx import Presentation
+        prs = Presentation(file_loc)
+
+        chunks = []
+        full_text_parts = []
+
+        for slide_idx, slide in enumerate(prs.slides, start=1):
+            slide_parts = []
+            for shape in slide.shapes:
+                if shape.has_text_frame:
+                    for para in shape.text_frame.paragraphs:
+                        text = "".join(run.text for run in para.runs)
+                        if text.strip():
+                            slide_parts.append(text)
+                if shape.has_table:
+                    rows = [[cell.text for cell in row.cells] for row in shape.table.rows]
+                    markdown = self._table_to_markdown(rows)
+                    chunks.append({
+                        "type": "table",
+                        "text": markdown,
+                        "rows": rows,
+                        "section_path": [f"Slide {slide_idx}"],
+                        "page": slide_idx,
+                    })
+                    slide_parts.append(markdown)
+
+            if slide.has_notes_slide and slide.notes_slide.notes_text_frame.text.strip():
+                note_text = slide.notes_slide.notes_text_frame.text
+                slide_parts.append(f"[notes] {note_text}")
+
+            slide_text = "\n".join(slide_parts)
+            chunks.append({
+                "type": "paragraph",
+                "text": slide_text,
+                "section_path": [f"Slide {slide_idx}"],
+                "page": slide_idx,
+            })
+            full_text_parts.append(f"# Slide {slide_idx}\n{slide_text}")
+
+        return {
+            "source_file": str(file_loc),
+            "file_format": file_format,
+            "text": "\n\n".join(full_text_parts),
+            "chunks": chunks,
+        }
 
     def unsupported_file_format(self, file_loc: pathlib.Path = None, file_format: str = None) -> None:
         print(f"Provided file at {file_loc} does not have a valid file format")
         return None
+
+    def deprecated_file_format(self, file_loc: pathlib.Path = None, file_format:str = None) -> None:
+        print(f"Given file format {file_format} is deprecated and is not supported")
 
     def text_splitter(self):
         None
