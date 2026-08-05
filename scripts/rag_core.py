@@ -417,6 +417,7 @@ class modularRAG:
         return passthrough_results + merged
 
     def read_pdf(self, file_loc: pathlib.Path = None, file_format: str = None, page_index: int = None, num_pages: int = None):
+        # Need to optimise this code
         import pymupdf
         import pdfplumber
 
