@@ -221,3 +221,4 @@ __marimo__/
 input_folder/*
 !input_folder/placeholder
 scripts/extracted_images/*
+test.json
