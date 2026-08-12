@@ -39,7 +39,6 @@ class modularRAG:
         self.doc_loader()
 
     def doc_loader(self):
-        # To implement: batching, takes all file types as input, use batching
         # get doc's loc (can be temp path made by the code) -> load location of all the files -> batch divide (I need to find a good batch size, equally dividing it over 10 threads sounds fine) -|
         # |-> multiprocess/async(read based on file type + assign metadata (hash) -> convert to json / .md (need to look up the specifics) -|
         # |-> Make a tracker file that checks against the files to make sure a re-read isn't happening (compare hash as well as time modified against the one in the file)-> append to storage object)
@@ -91,8 +90,7 @@ class modularRAG:
             print("No files need processing — cache is up to date.")
             return []
 
-        # Now expand only the files that survived the cache check into
-        # per-page entries for PDFs. Everything else passes through as-is.
+        # Expands only the files that survived the cache check (with per-page entries for PDFs). Everything else passes through as-is.
         files_expanded = self._expand_pdfs_to_pages(files_to_process)
 
         batched_files = self.batcher(list_of_files=files_expanded)
@@ -109,6 +107,31 @@ class modularRAG:
         merged_results = self.merge_pdf_page_results(flat_results)
 
         # print(merged_results)
+
+        """
+        Urgent TODO's
+
+        - Add files to cache
+            - Include the metadata of each page inside of the structured JSON so it helps in chunk retrieval
+            - Include hash of the file so it doesn't get read again and make sure it DOES get passed
+        - The contents of the process_cache must be read in full after the ingestion stage
+        - Append it to the VDB and cache it based on what time the VDB was made 
+            - Check for parameters as well as best methods for storage
+                - Make sure metadata and text splitting is working well
+        - Add more cohesive documents (try EVD docs if still exist)
+        - Add the agentic call methods first and then go with the linear flow
+            - make sure to follow the 5-agent plan (supervisor -> guardrails -> RAG -> LLM -> Groundedness Checker -> Output)
+                - guardrails - try:
+                    - agentic routing LLM call
+                    - small model that checks for malicious prompts
+                    - check for off-domain queries
+                - cross-check with the output validation loop and how it can be best done in a prod scenario
+            - make sure the metadata is also returned
+        - Add a swapper for AWS in the LLM section and make it configurable 
+            - API key must exist inside of the `.env`
+        - Add in-chat temp VDB
+            - also check how to handle shortlong-term memory & how it's done in prod
+        """
 
         # docs = [
         #     Document(page_content=r["text"], metadata={"source": r["source_file"], "chunks": r["chunks"]})
