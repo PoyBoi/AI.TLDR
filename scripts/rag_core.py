@@ -111,7 +111,6 @@ class modularRAG:
         """
         Urgent TODO's
 
-        - The contents of the process_cache must be read in full after the ingestion stage
         - Append it to the VDB and cache it based on what time the VDB was made 
             - Check for parameters as well as best methods for storage
                 - Make sure metadata and text splitting is working well
