@@ -56,6 +56,7 @@ class modularRAG:
         cache_path = pathlib.Path("process_cache.json")
         if cache_path.exists():
             self.process_cache = json.loads(cache_path.read_text())
+            # print(self.process_cache)
         else:
             self.process_cache = []
 
@@ -68,8 +69,7 @@ class modularRAG:
                 "file_size": f.stat().st_size,
                 "time_last_change": f.stat().st_ctime,
                 "time_last_modification": f.stat().st_mtime,
-                # TODO: Make the Hash of the file once it's been read
-                # "file_hash": hashlib.file_digest(f, "sha256")
+                "file_hash": self._hash_file(f),
             } for f in doc_loc.iterdir() if f.is_file() and "placeholder" not in str(f)
         ]
         total_files = len(whole_files)
@@ -111,9 +111,6 @@ class modularRAG:
         """
         Urgent TODO's
 
-        - Add files to cache
-            - Include the metadata of each page inside of the structured JSON so it helps in chunk retrieval
-            - Include hash of the file so it doesn't get read again and make sure it DOES get passed
         - The contents of the process_cache must be read in full after the ingestion stage
         - Append it to the VDB and cache it based on what time the VDB was made 
             - Check for parameters as well as best methods for storage
@@ -132,6 +129,21 @@ class modularRAG:
         - Add in-chat temp VDB
             - also check how to handle shortlong-term memory & how it's done in prod
         """
+
+        content_to_write_to_json = self.process_cache + merged_results
+        # print(content_to_write_to_json)
+
+        # with open("test.json", "w+") as file:
+        try:
+            with open(cache_path, "w+") as file:
+                json.dump(content_to_write_to_json, file, indent=4)
+        except Exception as e:
+            print(f"Failed to write knowledge cache due to : {e}, re-trying...")
+            try:
+                with open("process_cache_backup.json", "w+") as file:
+                    json.dump(content_to_write_to_json, file, indent=4)
+            except Exception as e:
+                print(f"Failed to write back-up knowledge cache as well due to {e}, skipping writing cache, you will need to wait for the files to be read the next time...")
 
         # docs = [
         #     Document(page_content=r["text"], metadata={"source": r["source_file"], "chunks": r["chunks"]})
@@ -185,7 +197,6 @@ class modularRAG:
         assignments = {i: [] for i in range(usable_cpu_count)}
         
         for i in files_sorted:
-            # file_path = i["file_path"]
             size = i["file_size"]
             load, core_id = heapq.heappop(heap)
             assignments[core_id].append(i)
@@ -194,8 +205,6 @@ class modularRAG:
         return assignments
 
     def read_files(self, file_data: tuple = None) -> dict:
-        # Reads all the files/pages in this core's assignment and stores the
-        # result dict directly on each entry as "text_content".
         core_id, assignments = file_data
 
         for file in assignments:
@@ -203,12 +212,20 @@ class modularRAG:
                 file_loc=file["file_path"],
                 page_index=file.get("page_index"),
                 num_pages=file.get("num_pages"),
+                file_size=file.get("file_size"),
+                time_last_change=file.get("time_last_change"),
+                time_last_modification=file.get("time_last_modification"),
+                file_hash=file.get("file_hash"),
             )
             file["text_content"] = output
 
         return {"core_id": core_id, "assignments": assignments}
 
-    def read_file(self, file_loc:pathlib.Path = None, page_index: int = None, num_pages: int = None) -> None:
+    def read_file(
+            self, file_loc:pathlib.Path = None, page_index: int = None, num_pages: int = None,
+            file_size: int = None, time_last_change: float = None, time_last_modification: float = None, file_hash: str = None
+        ) -> None:
+
         action_map = {
             ".pdf": self.read_pdf,
             ".docx": self.read_doc,
@@ -238,24 +255,38 @@ class modularRAG:
         # print(file_format)
         file_read_function = action_map.get(file_format, self.unsupported_file_format)
 
+        file_meta = {
+            "file_size": file_size,
+            "time_last_change": time_last_change,
+            "time_last_modification": time_last_modification,
+            "file_hash": file_hash,
+        }
+
         try:
             if file_format == ".pdf":
-                return self.read_pdf(
+                result = self.read_pdf(
                     file_loc=file_loc,
                     file_format=file_format,
                     page_index=page_index,
                     num_pages=num_pages,
                 )
-            return file_read_function(file_loc=file_loc, file_format=file_format)
+            else:
+                result = file_read_function(file_loc=file_loc, file_format=file_format)
+
+            if isinstance(result, dict):
+                result.update(file_meta)
+            return result
+
         except Exception as e:
             print(f"Failed to read {file_loc} ({file_format}, page_index={page_index}): {e}")
             return {
-                "source_file": str(file_loc),
-                "file_format": file_format,
+                "file_path": str(file_loc),
+                "file_format": str(file_format),
                 "page_index": page_index,
                 "text": "",
                 "chunks": [],
                 "error": str(e),
+                **file_meta,
             }
 
     def read_doc(self, file_loc: pathlib.Path = None, file_format: str = None):
@@ -292,7 +323,7 @@ class modularRAG:
             full_text_parts.append(markdown)
 
         return {
-            "source_file": str(file_loc),
+            "file_path": str(file_loc),
             "file_format": file_format,
             "text": "\n".join(full_text_parts),
             "chunks": chunks,
@@ -319,7 +350,7 @@ class modularRAG:
             full_text_parts.append(f"# Sheet: {sheet_name}\n{markdown}")
 
         return {
-            "source_file": str(file_loc),
+            "file_path": str(file_loc),
             "file_format": file_format,
             "text": "\n\n".join(full_text_parts),
             "chunks": chunks,
@@ -330,7 +361,7 @@ class modularRAG:
         text = file_loc.read_text(encoding="utf-8", errors="replace")
 
         return {
-            "source_file": str(file_loc),
+            "file_path": str(file_loc),
             "file_format": file_format,
             "text": text,
             "chunks": [{
@@ -348,7 +379,7 @@ class modularRAG:
         text = orjson.dumps(data, option=orjson.OPT_INDENT_2).decode("utf-8")
 
         return {
-            "source_file": str(file_loc),
+            "file_path": str(file_loc),
             "file_format": file_format,
             "text": text,
             "chunks": [{
@@ -370,7 +401,7 @@ class modularRAG:
             text = str(result)
 
         return {
-            "source_file": str(file_loc),
+            "file_path": str(file_loc),
             "file_format": file_format,
             "text": text,
             "chunks": [{
@@ -423,7 +454,7 @@ class modularRAG:
 
         for r in all_results:
             if r.get("page_index") is not None:
-                grouped[r["source_file"]].append(r)
+                grouped[r["file_path"]].append(r)
             else:
                 passthrough_results.append(r)
 
@@ -431,10 +462,14 @@ class modularRAG:
         for source_file, page_results in grouped.items():
             page_results.sort(key=lambda r: r["page_index"])
             merged.append({
-                "source_file": source_file,
+                "file_path": source_file,
                 "file_format": ".pdf",
                 "text": "\n\n".join(r["text"] for r in page_results if r["text"]),
                 "chunks": [c for r in page_results for c in r["chunks"]],
+                "file_size": page_results[0].get("file_size"),
+                "time_last_change": page_results[0].get("time_last_change"),
+                "time_last_modification": page_results[0].get("time_last_modification"),
+                "file_hash": page_results[0].get("file_hash"),
             })
 
         return passthrough_results + merged
@@ -537,7 +572,7 @@ class modularRAG:
         doc.close()
 
         return {
-            "source_file": str(file_loc),
+            "file_path": str(file_loc),
             "file_format": file_format,
             "page_index": page_index,   # None means this result is the whole file
             "text": "\n\n".join(full_text_parts),
@@ -586,7 +621,7 @@ class modularRAG:
             return text
 
         return {
-            "source_file": source_ref,
+            "file_path": source_ref,
             "file_format": file_format,
             "text": text,
             "chunks": [{
@@ -597,6 +632,12 @@ class modularRAG:
             }],
         }
 
+    def _hash_file(self, path: pathlib.Path, chunk_size: int = 1 << 20) -> str:
+        hasher = hashlib.sha256()
+        with open(path, "rb") as fp:
+            for block in iter(lambda: fp.read(chunk_size), b""):
+                hasher.update(block)
+        return hasher.hexdigest()
 
     def _table_to_markdown(self, rows: list) -> str:
         if not rows:
@@ -619,7 +660,7 @@ class modularRAG:
             text = str(result)
 
         return {
-            "source_file": str(file_loc),
+            "file_path": str(file_loc),
             "file_format": file_format,
             "text": text,
             "chunks": [{
@@ -675,7 +716,7 @@ class modularRAG:
             full_text_parts.append(f"# Slide {slide_idx}\n{slide_text}")
 
         return {
-            "source_file": str(file_loc),
+            "file_path": str(file_loc),
             "file_format": file_format,
             "text": "\n\n".join(full_text_parts),
             "chunks": chunks,
