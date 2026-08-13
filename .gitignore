@@ -223,3 +223,4 @@ input_folder/*
 scripts/extracted_images/*
 test.json
 process_cache.json
+_test_input_folder/*
