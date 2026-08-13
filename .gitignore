@@ -222,5 +222,5 @@ input_folder/*
 !input_folder/placeholder
 scripts/extracted_images/*
 test.json
-process_cache.json
+scripts/process_cache.json
 _test_input_folder/*
