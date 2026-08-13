@@ -1,5 +1,5 @@
 # [Basics]
-import os, pathlib, hashlib, heapq, json, time, tempfile, subprocess
+import os, pathlib, hashlib, heapq, json, time, tempfile, subprocess, statistics
 from typing import Optional, Literal
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from multiprocessing import Manager
@@ -12,6 +12,7 @@ from charset_normalizer import from_path
 
 # [LangChain]
 from langchain_core.documents import Document
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 # [LangGraph]
 
@@ -39,12 +40,6 @@ class modularRAG:
         # Multi-Processing Tasks Below
         # Will MP this later
         self.doc_loader()
-
-    def _log(self, msg: str):
-        try:
-            tqdm.write(msg)
-        except Exception:
-            print(msg)
 
     def doc_loader(self):
         # get doc's loc (can be temp path made by the code) -> load location of all the files -> batch divide (I need to find a good batch size, equally dividing it over 10 threads sounds fine) -|
@@ -144,7 +139,6 @@ class modularRAG:
         - Append it to the VDB and cache it based on what time the VDB was made 
             - Check for parameters as well as best methods for storage
                 - Make sure metadata and text splitting is working well
-        - Add more cohesive documents (try EVD docs if still exist)
         - Add the agentic call methods first and then go with the linear flow
             - make sure to follow the 5-agent plan (supervisor -> guardrails -> RAG -> LLM -> Groundedness Checker -> Output)
                 - guardrails - try:
@@ -160,11 +154,13 @@ class modularRAG:
         """
 
         content_to_write_to_json = self.process_cache + merged_results
+        for r in content_to_write_to_json:
+            r["chunks"] = self.text_splitter(r["chunks"])
         # print(content_to_write_to_json)
 
-        # with open("test.json", "w+") as file:
         try:
-            with open(cache_path, "w+") as file:
+            # with open(cache_path, "w+") as file:
+            with open("test.json", "w+") as file:
                 json.dump(content_to_write_to_json, file, indent=4)
         except Exception as e:
             print(f"Failed to write knowledge cache due to : {e}, re-trying...")
@@ -174,10 +170,24 @@ class modularRAG:
             except Exception as e:
                 print(f"Failed to write back-up knowledge cache as well due to {e}, skipping writing cache, you will need to wait for the files to be read the next time...")
 
-        # docs = [
-        #     Document(page_content=r["text"], metadata={"source": r["source_file"], "chunks": r["chunks"]})
-        #     for r in merged_results
-        # ]
+        try:
+            docs = [
+                Document(page_content=r["text"], metadata={
+                    "source": r["file_path"], 
+                    "chunks": r["chunks"],
+                    "file_size": r["file_size"],
+                    "time_last_change": r["time_last_change"],
+                    "time_last_modification": r["time_last_modification"],
+                    "file_hash": r["file_hash"]
+                    }
+                )
+                for r in content_to_write_to_json
+            ]
+            print("Documents updated to VDB-compliant structure...")
+        except Exception as e:
+            print(f"Failure of addition of documents to VDB-compliant structure, reason: {e}")
+
+        report = self.analyze_chunks(content_to_write_to_json)
 
         return merged_results
 
@@ -761,8 +771,113 @@ class modularRAG:
     def deprecated_file_format(self, file_loc: pathlib.Path = None, file_format:str = None) -> None:
         print(f"Given file format {file_format} is deprecated and is not supported")
 
-    def text_splitter(self):
-        None
+    def text_splitter(self, chunks: list, chunk_size: int = 400, chunk_overlap: int = 50) -> list:
+        splitter = RecursiveCharacterTextSplitter(
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            separators=["\n\n", "\n", ". ", " ", ""],
+        )
+
+        result = []
+        for c in chunks:
+            if c["type"] != "paragraph" or len(c["text"]) <= chunk_size:
+                result.append(c)
+                continue
+
+            pieces = splitter.split_text(c["text"])
+            for i, piece in enumerate(pieces):
+                result.append({
+                    **c,                       # keeps type, section_path, page, source
+                    "text": piece,
+                    "split_index": i,          # marks it as a sub-chunk of the original
+                    "split_of": len(pieces),
+                })
+
+        return result
+
+    def analyze_chunks(self, content_to_write_to_json: list) -> dict:
+        """
+        Walks every chunk across every file's `chunks` list and reports size
+        stats, so you can tell if your current chunker (per-paragraph/per-table/
+        per-page, i.e. whatever produced these chunks) needs replacing with a
+        real text_splitter pass (e.g. RecursiveCharacterTextSplitter at
+        chunk_size=400) before it goes into the VDB.
+        """
+        char_lens = []
+        word_lens = []
+        by_type = {}          # type -> list of char lengths
+        by_source = {}         # file_path -> list of char lengths
+        empty_chunks = 0
+        tiny_chunks = []       # < 50 chars — likely noise / over-fragmented
+        huge_chunks = []       # > 2000 chars — likely under-fragmented for embedding
+
+        for r in content_to_write_to_json:
+            source = r.get("file_path", "unknown")
+            for c in r.get("chunks", []):
+                text = (c.get("text") or "").strip()
+                c_type = c.get("type", "unknown")
+                n_chars = len(text)
+                n_words = len(text.split())
+
+                if n_chars == 0:
+                    empty_chunks += 1
+                    continue
+
+                char_lens.append(n_chars)
+                word_lens.append(n_words)
+                by_type.setdefault(c_type, []).append(n_chars)
+                by_source.setdefault(source, []).append(n_chars)
+
+                if n_chars < 50:
+                    tiny_chunks.append((source, c_type, n_chars))
+                elif n_chars > 2000:
+                    huge_chunks.append((source, c_type, n_chars))
+
+        if not char_lens:
+            print("No non-empty chunks found.")
+            return {}
+
+        report = {
+            "total_chunks": len(char_lens),
+            "empty_chunks": empty_chunks,
+            "char_mean": statistics.mean(char_lens),
+            "char_median": statistics.median(char_lens),
+            "char_stdev": statistics.stdev(char_lens) if len(char_lens) > 1 else 0,
+            "char_min": min(char_lens),
+            "char_max": max(char_lens),
+            "word_mean": statistics.mean(word_lens),
+            "word_median": statistics.median(word_lens),
+            "tiny_chunk_count": len(tiny_chunks),
+            "huge_chunk_count": len(huge_chunks),
+        }
+
+        print("=== Chunk Size Report ===")
+        print(f"Total chunks:        {report['total_chunks']}")
+        print(f"Empty chunks:        {report['empty_chunks']}")
+        print(f"Char length  - mean: {report['char_mean']:.1f}  median: {report['char_median']:.1f}  "
+            f"stdev: {report['char_stdev']:.1f}  min: {report['char_min']}  max: {report['char_max']}")
+        print(f"Word count   - mean: {report['word_mean']:.1f}  median: {report['word_median']:.1f}")
+        print(f"Tiny chunks (<50 chars):  {report['tiny_chunk_count']}  ({report['tiny_chunk_count']/report['total_chunks']*100:.1f}%)")
+        print(f"Huge chunks (>2000 chars): {report['huge_chunk_count']}  ({report['huge_chunk_count']/report['total_chunks']*100:.1f}%)")
+
+        print("\n--- By chunk type ---")
+        for c_type, lens in sorted(by_type.items(), key=lambda x: -len(x[1])):
+            print(f"  {c_type:12s} count={len(lens):5d}  mean={statistics.mean(lens):7.1f}  "
+                f"median={statistics.median(lens):7.1f}  max={max(lens):7d}")
+
+        print("\n--- Worst offenders (files with the most extreme avg chunk size) ---")
+        source_avgs = sorted(
+            ((src, statistics.mean(lens), len(lens)) for src, lens in by_source.items()),
+            key=lambda x: x[1],
+        )
+        print("  Smallest avg chunks:")
+        for src, avg, n in source_avgs[:5]:
+            print(f"    {src}  avg={avg:.1f}  n_chunks={n}")
+        print("  Largest avg chunks:")
+        for src, avg, n in source_avgs[-5:]:
+            print(f"    {src}  avg={avg:.1f}  n_chunks={n}")
+
+        return report
 
 #__main__
 if __name__ == "__main__":
