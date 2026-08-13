@@ -2,6 +2,8 @@
 import os, pathlib, hashlib, heapq, json, time, tempfile, subprocess
 from typing import Optional, Literal
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+from multiprocessing import Manager
+from tqdm import tqdm
 
 # [Ingestion]
 import PyPDF2, unstructured, orjson, io
@@ -37,6 +39,12 @@ class modularRAG:
         # Multi-Processing Tasks Below
         # Will MP this later
         self.doc_loader()
+
+    def _log(self, msg: str):
+        try:
+            tqdm.write(msg)
+        except Exception:
+            print(msg)
 
     def doc_loader(self):
         # get doc's loc (can be temp path made by the code) -> load location of all the files -> batch divide (I need to find a good batch size, equally dividing it over 10 threads sounds fine) -|
@@ -95,14 +103,36 @@ class modularRAG:
 
         batched_files = self.batcher(list_of_files=files_expanded)
 
-        with ProcessPoolExecutor() as executor:
-            processed_batches = list(executor.map(self.read_files, batched_files.items()))
+        # Multiprocessing Manager for TQDM
+        with Manager() as manager:
+            progress_queue = manager.Queue()
+            total_units = len(files_expanded)  # per-file/per-page granularity
+
+            with ProcessPoolExecutor() as executor:
+                futures = [
+                    executor.submit(self.read_files, item, progress_queue)
+                    for item in batched_files.items()
+                ]
+
+                with tqdm(total=total_units, desc="Reading files") as pbar:
+                    while not all(f.done() for f in futures):
+                        while not progress_queue.empty():
+                            progress_queue.get()
+                            pbar.update(1)
+                        time.sleep(0.05)
+                    # drain whatever landed after the last check
+                    while not progress_queue.empty():
+                        progress_queue.get()
+                        pbar.update(1)
+
+                processed_batches = [f.result() for f in futures]
 
         # Flatten {core_id, assignments} wrapper structure into a flat list of per-file/per-page result dicts before merging PDF pages back into single documents.
         flat_results = []
         for batch in processed_batches:
             for file_entry in batch["assignments"]:
-                flat_results.append(file_entry["text_content"])
+                if file_entry["text_content"] is not None:
+                    flat_results.append(file_entry["text_content"])
 
         merged_results = self.merge_pdf_page_results(flat_results)
 
@@ -203,7 +233,7 @@ class modularRAG:
         
         return assignments
 
-    def read_files(self, file_data: tuple = None) -> dict:
+    def read_files(self, file_data: tuple = None, progress_queue=None) -> dict:
         core_id, assignments = file_data
 
         for file in assignments:
@@ -217,6 +247,8 @@ class modularRAG:
                 file_hash=file.get("file_hash"),
             )
             file["text_content"] = output
+            if progress_queue is not None: # Adding descrete counter for TQDM's bar
+                progress_queue.put(1)
 
         return {"core_id": core_id, "assignments": assignments}
 
@@ -478,10 +510,11 @@ class modularRAG:
         import pymupdf
         import pdfplumber
 
-        if page_index is not None:
-            print(f"Reading PDF page {page_index + 1} of {file_loc}")
-        else:
-            print(f"Reading PDF (whole file) {file_loc}")
+        # Commented this out for sake of new TQDM progress bar
+        # if page_index is not None:
+        #     print(f"Reading PDF page {page_index + 1} of {file_loc}")
+        # else:
+        #     print(f"Reading PDF (whole file) {file_loc}")
 
         doc = pymupdf.open(str(file_loc))
         target_indices = [page_index] if page_index is not None else list(range(len(doc)))
