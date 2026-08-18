@@ -150,17 +150,32 @@ class modularRAG:
         - Add a swapper for AWS in the LLM section and make it configurable 
             - API key must exist inside of the `.env`
         - Add in-chat temp VDB
-            - also check how to handle shortlong-term memory & how it's done in prod
+            - Check how to handle shortlong-term memory & how it's done in prod
+                - Add the parent-child long-term memory format
+                - Add fact summarisation for conversations above X tokens
+                - Look at that new memory handling tool open-sourced by that actress
+        - Visualise the vector database via an image / 3D space visualisation
+            - Pre-render it so that it doesn't have to rendered in real time and save it
+            - Make it viewable in a browser / pop up window spawned from the python process
+        - Add ingestion stats from "analyze_chunks" to a .log / .txt file
+            - Make a folder called "stats" (or something better idk) and name the file based on when the ingestion was carried out, if successful 
+        - Find a way to monitor the input / output tokens and their attributed costs 
+            - this needs to displayed in the front-end, need to be a part of the message metadata (will include previous and current token length and pricing based on the service used)
+        - Implement a switch between chunking methods so it's easy for advanced users to change it and see which method will work the best
+            - can also have a method that uses all the chunking method and shows which one can be the best one
+                - MAYBE automatically use this method
         """
 
         content_to_write_to_json = self.process_cache + merged_results
         for r in content_to_write_to_json:
+            # Chunking process applied to the data inside of results
             r["chunks"] = self.text_splitter(r["chunks"])
         # print(content_to_write_to_json)
 
+        # Update the file with the new chunk data
+        cache_path = pathlib.Path("test.json") #TODO: Remove this once testing is done
         try:
-            # with open(cache_path, "w+") as file:
-            with open("test.json", "w+") as file:
+            with open(cache_path, "w+") as file:
                 json.dump(content_to_write_to_json, file, indent=4)
         except Exception as e:
             print(f"Failed to write knowledge cache due to : {e}, re-trying...")
@@ -168,7 +183,9 @@ class modularRAG:
                 with open("process_cache_backup.json", "w+") as file:
                     json.dump(content_to_write_to_json, file, indent=4)
             except Exception as e:
-                print(f"Failed to write back-up knowledge cache as well due to {e}, skipping writing cache, you will need to wait for the files to be read the next time...")
+                print(f"Failed to write back-up knowledge cache as well due to {e}, skipping writing cache, reverting to older version...")
+                with open(cache_path, "w+") as file:
+                    json.dump(self.process_cache, file, indent=4)
 
         try:
             docs = [
@@ -187,7 +204,7 @@ class modularRAG:
         except Exception as e:
             print(f"Failure of addition of documents to VDB-compliant structure, reason: {e}")
 
-        report = self.analyze_chunks(content_to_write_to_json)
+        # report = self.analyze_chunks(content_to_write_to_json)
 
         return merged_results
 
@@ -796,13 +813,6 @@ class modularRAG:
         return result
 
     def analyze_chunks(self, content_to_write_to_json: list) -> dict:
-        """
-        Walks every chunk across every file's `chunks` list and reports size
-        stats, so you can tell if your current chunker (per-paragraph/per-table/
-        per-page, i.e. whatever produced these chunks) needs replacing with a
-        real text_splitter pass (e.g. RecursiveCharacterTextSplitter at
-        chunk_size=400) before it goes into the VDB.
-        """
         char_lens = []
         word_lens = []
         by_type = {}          # type -> list of char lengths
