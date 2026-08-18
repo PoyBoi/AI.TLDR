@@ -100,7 +100,8 @@ Pathway of things to do from scratch:
             - backend endpoints will be useful here
             - summarisation of conversation into points (what, how, who, where, etc)
 - Use chroma for testing
-- Move to pinecone / weaviate for faster and more prod-ready VDB's
+- Move to weaviate / QDrant / PGVector for faster and more prod-ready VDB's
+    - not pinecone because it's cloud-first and this project is local-first
     - Need faster and more precise answers
 
 #### Agents:
