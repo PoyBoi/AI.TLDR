@@ -788,6 +788,11 @@ class modularRAG:
     def deprecated_file_format(self, file_loc: pathlib.Path = None, file_format:str = None) -> None:
         print(f"Given file format {file_format} is deprecated and is not supported")
 
+    def _build_breadcrumb(self, file_loc: pathlib.Path, section_path: list) -> str:
+        doc_name = file_loc.stem if isinstance(file_loc, pathlib.Path) else pathlib.Path(str(file_loc)).stem
+        parts = [doc_name] + [p for p in (section_path or []) if p]
+        return "[" + " > ".join(parts) + "]"
+
     def text_splitter(self, chunks: list, chunk_size: int = 400, chunk_overlap: int = 50) -> list:
         splitter = RecursiveCharacterTextSplitter(
             chunk_size=chunk_size,
